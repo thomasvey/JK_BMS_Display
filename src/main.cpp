@@ -1,7 +1,6 @@
 #include <Arduino.h>
-
-
 #include "jk_bms.h"
+#include "display.h"
 
 // const u8 S1_tx = 4;
 // const u8 S1_rx = 5;
@@ -16,15 +15,21 @@ void setup()
 {
   Serial.begin(BUAD_RATE);
   Serial1.begin(JK_BAUD);
+
+  display_setup();
 }
 
 void loop()
 {
-  static unsigned long dt = 0;
-
-  bms.req_status();
-  bms.print_full_status();
+  display_loop();
   
-  Serial.print(millis() - dt);
-  dt = millis();
+  // static unsigned long dt = 0;
+
+  // bms.req_status();
+  // bms.print_full_status();
+  
+  // Serial.print(millis() - dt);
+  // dt = millis();
+
+  //delay(1000);
 }
