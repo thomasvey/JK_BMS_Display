@@ -1,216 +1,211 @@
-// This sketch is for the RP2040 and ILI9341 TFT display.
-// Other processors may work if they have sufficient RAM for
-// a full screen buffer (240 x 320 x 2 = 153,600 bytes).
+// This is a test sketch being developed for a new arc based meter widget
+// The meter graphic is fully anti-aliased to avoid jaggy pixelated edges
 
-// In this example 2 sprites are used to create DMA toggle
-// buffers. Each sprite is half the screen size, this allows
-// graphics to be rendered in one sprite at the same time
-// as the other sprite is being sent to the screen.
+// For this demo randomly sized meters are drawn, cycled and redrawn a random size.
+// The meter is ramped up and down 0-100 and 100-0, then pauses before a new
+// random sized meter is drawn
 
-// RP2040 typically runs at 45-48 fps
+// If the radius is > 25 then the value is drawn in the middle
 
-// Created by Bodmer 20/04/2021 as an example for:
-// https://github.com/Bodmer/TFT_eSPI
+// The outer ring of the meter uses the drawSmoothCircle function (which draws
+// a narrow full circle smooth arc)
 
-// Number of circles to draw
-//#include "setup_GC9A01.h"
-#define CNUMBER 3
+// Uncomment to draw meter digits and label text
+#define DRAW_DIGITS
 
-// Define the width and height according to the TFT and the
-// available memory. The sprites will require:
-//     DWIDTH * DHEIGHT * 2 bytes of RAM
-// Note: for a 240 * 320 area this is 150 Kbytes!
-#define DWIDTH  240
-#define DHEIGHT 240
+// If DRAW_DIGITS is defined the OpenFontRender library must be loaded since
+// the sketch uses a scaleable TrueType font for the text and numerals.
+// https://github.com/Bodmer/OpenFontRender
 
-#include <TFT_eSPI.h>
-
-// Library instance
-TFT_eSPI    tft = TFT_eSPI();
-
-// Create two sprites for a DMA toggle buffer
-TFT_eSprite spr[2] = {TFT_eSprite(&tft), TFT_eSprite(&tft)};
-
-// Pointers to start of Sprites in RAM (these are then "image" pointers)
-uint16_t* sprPtr[2];
-
-// Used for fps measuring
-uint16_t counter = 0;
-int32_t startMillis = millis();
-uint16_t interval = 100;
-String fps = "xx.xx fps";
-
-// Structure to hold circle plotting parameters
-typedef struct circle_t {
-  int16_t   cx[CNUMBER] = { 0 }; // x coordinate of centre
-  int16_t   cy[CNUMBER] = { 0 }; // y coordinate of centre
-  int16_t   cr[CNUMBER] = { 0 }; // radius
-  uint16_t col[CNUMBER] = { 0 }; // colour
-  int16_t   dx[CNUMBER] = { 0 }; // x movement & direction
-  int16_t   dy[CNUMBER] = { 0 }; // y movement & direction
-} circle_param;
-
-// Create the structure and get a pointer to it
-circle_t *circle = new circle_param;
+#define LOOP_DELAY 0 // This controls how frequently the meter is updated
+                     // for test purposes this is set to 0
 
 
-// Functions
-void drawUpdate (bool sel);
-uint16_t rainbow(byte value);
+#include <SPI.h>
+#include <TFT_eSPI.h> // Hardware-specific library
+
+#ifdef DRAW_DIGITS
+  #include "NotoSans_Bold.h"
+  #include "OpenFontRender.h"
+  #define TTF_FONT NotoSans_Bold
+#endif
 
 
-// #########################################################################
-// Setup
-// #########################################################################
-void display_setup() {
-//   Serial.begin(115200);
+TFT_eSPI tft = TFT_eSPI();            // Invoke custom library with default width and height
+TFT_eSprite spr = TFT_eSprite(&tft);  // Declare Sprite object "spr" with pointer to "tft" object
 
-  tft.init();
-  tft.initDMA();
-  tft.fillScreen(TFT_BLACK);
+#ifdef DRAW_DIGITS
+OpenFontRender ofr;
+#endif
 
-  // Create the 2 sprites, each is half the size of the screen
-  sprPtr[0] = (uint16_t*)spr[0].createSprite(DWIDTH, DHEIGHT / 2);
-  sprPtr[1] = (uint16_t*)spr[1].createSprite(DWIDTH, DHEIGHT / 2);
+#define DARKER_GREY 0x18E3
 
-  // Move the sprite 1 coordinate datum upwards half the screen height
-  // so from coordinate point of view it occupies the bottom of screen
-  spr[1].setViewport(0, -DHEIGHT / 2, DWIDTH, DHEIGHT);
+uint32_t runTime = 0;       // time for next update
 
-  // Define text datum for each Sprite
-  spr[0].setTextDatum(MC_DATUM);
-  spr[1].setTextDatum(MC_DATUM);
+int reading = 0; // Value to be displayed
+int d = 0; // Variable used for the sine wave test waveform
+bool range_error = 0;
+int8_t ramp = 1;
 
-  // Seed the random number generator
-  randomSeed(analogRead(A0));
+bool initMeter = true;
 
-  // Initialise circle parameters
-  for (uint16_t i = 0; i < CNUMBER; i++) {
-    circle->cr[i] = random(12, 24);
-    circle->cx[i] = random(circle->cr[i], DWIDTH - circle->cr[i]);
-    circle->cy[i] = random(circle->cr[i], DHEIGHT - circle->cr[i]);
-    
-    circle->col[i] = rainbow(4 * i);
-    circle->dx[i] = random(1, 5);
-    if (random(2)) circle->dx[i] = -circle->dx[i];
-    circle->dy[i] = random(1, 5);
-    if (random(2)) circle->dy[i] = -circle->dy[i];
-  }
+void ringMeter(int x, int y, int r, int val, const char *units);
 
-  tft.startWrite(); // TFT chip select held low permanently
-
-  startMillis = millis();
+void display_setup(void) {
+  Serial.begin(115200);
+  tft.begin();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_NAVY);
+  tft.setViewport(0, 0, 240, 240);
 }
 
-// #########################################################################
-// Loop
-// #########################################################################
 
 void display_loop() {
-  drawUpdate(0); // Update top half
-  drawUpdate(1); // Update bottom half
+  static uint16_t maxRadius = 0;
+  int8_t ramp = 1;
+  static uint8_t radius = 0;
+  static int16_t xpos = tft.width() / 2;
+  static int16_t ypos = tft.height() / 2;
+  bool newMeter = false;
 
-  // Calculate the fps every <interval> iterations.
-  counter++;  
-  if (counter % interval == 0) {
-    long millisSinceUpdate = millis() - startMillis;
-    fps = String((interval * 1000.0 / (millisSinceUpdate))) + " fps";
-    Serial.println(fps);
-    startMillis = millis();
+
+  // Choose a random meter radius for test purposes and draw for one range cycle
+  // Clear old meter first
+  tft.fillCircle(xpos, ypos, radius + 1, TFT_NAVY);
+  radius = tft.width()/2;
+  initMeter = true;
+
+#ifdef DRAW_DIGITS
+  // Loading a font takes a few milliseconds, so for test purposes it is done outside the test loop
+  if (ofr.loadFont(TTF_FONT, sizeof(TTF_FONT))) {
+    Serial.println("Render initialize error");
+    return;
   }
-}
+#endif
 
-// #########################################################################
-// Render circles to sprite 0 or 1 and initiate DMA
-// #########################################################################
-void drawUpdate (bool sel) {
-  spr[sel].fillSprite(TFT_BLACK);
-  for (uint16_t i = 0; i < CNUMBER; i++) {
-    // Draw (Note sprite 1 datum was moved, so coordinates do not need to be adjusted
-    spr[sel].fillCircle(circle->cx[i], circle->cy[i], circle->cr[i], circle->col[i]);
-    spr[sel].drawCircle(circle->cx[i], circle->cy[i], circle->cr[i], TFT_WHITE);
-    spr[sel].setTextColor(TFT_BLACK, circle->col[i]);
-    spr[sel].drawNumber(i + 1, 1 + circle->cx[i], circle->cy[i], 2);
-  }
+  initMeter = true;
+  reading = 0;
+  ramp = 1;
+  while (!newMeter) {
+    if (millis() - runTime >= LOOP_DELAY) {
+      runTime = millis();
 
-  tft.pushImageDMA(0, sel * DHEIGHT / 2, DWIDTH, DHEIGHT / 2, sprPtr[sel]);
+      reading += ramp;
+      ringMeter(xpos, ypos, radius, reading, "Luci");
 
-  // Update circle positions after bottom half has been drawn
-  if (sel) {
-    for (uint16_t i = 0; i < CNUMBER; i++) {
-      circle->cx[i] += circle->dx[i];
-      circle->cy[i] += circle->dy[i];
-      if (circle->cx[i] <= circle->cr[i]) {
-        circle->cx[i] = circle->cr[i];
-        circle->dx[i] = -circle->dx[i];
-      }
-      else if (circle->cx[i] + circle->cr[i] >= DWIDTH - 1) {
-        circle->cx[i] = DWIDTH - circle->cr[i] - 1;
-        circle->dx[i] = -circle->dx[i];
-      }
-      if (circle->cy[i] <= circle->cr[i]) {
-        circle->cy[i] = circle->cr[i];
-        circle->dy[i] = -circle->dy[i];
-      }
-      else if (circle->cy[i] + circle->cr[i] >= DHEIGHT - 1) {
-        circle->cy[i] = DHEIGHT - circle->cr[i] - 1;
-        circle->dy[i] = -circle->dy[i];
+      if (reading > 99) ramp = -1;
+      if (reading <=  0) ramp = 1;
+
+      if (reading > 99) delay(1000);
+      if (reading <= 0) {
+        delay(1000);
+        newMeter = true;
       }
     }
   }
+
+  // const u8 TFT_W = 240;
+  // const u8 TFT_H = 240;
+  // tft.setTextColor(TFT_BLACK, TFT_RED);
+  // tft.drawCentreString("* TFT_S6D02A1 *", TFT_W / 2, 4, 1);
+  // tft.setTextColor(TFT_YELLOW, TFT_BLUE);
+  // tft.drawCentreString("Adapted by Bodmer", TFT_W / 2, TFT_H - 12, 1);
+
+#ifdef DRAW_DIGITS
+  ofr.unloadFont(); // Recover space used by font metrics etc.
+#endif
 }
 
 // #########################################################################
-// Return a 16-bit rainbow colour
+//  Draw the meter on the screen, returns x coord of right-hand side
 // #########################################################################
-uint16_t rainbow(byte value)
+// x,y is centre of meter, r the radius, val a number in range 0-100
+// units is the meter scale label
+void ringMeter(int x, int y, int r, int val, const char *units)
 {
-  // If 'value' is in the range 0-159 it is converted to a spectrum colour
-  // from 0 = red through to 127 = blue to 159 = violet
-  // Extending the range to 0-191 adds a further violet to red band
+  static uint16_t last_angle = 30;
 
-  value = value % 192;
-
-  byte red   = 0; // Red is the top 5 bits of a 16-bit colour value
-  byte green = 0; // Green is the middle 6 bits, but only top 5 bits used here
-  byte blue  = 0; // Blue is the bottom 5 bits
-
-  byte sector = value >> 5;
-  byte amplit = value & 0x1F;
-
-  switch (sector)
-  {
-    case 0:
-      red   = 0x1F;
-      green = amplit; // Green ramps up
-      blue  = 0;
-      break;
-    case 1:
-      red   = 0x1F - amplit; // Red ramps down
-      green = 0x1F;
-      blue  = 0;
-      break;
-    case 2:
-      red   = 0;
-      green = 0x1F;
-      blue  = amplit; // Blue ramps up
-      break;
-    case 3:
-      red   = 0;
-      green = 0x1F - amplit; // Green ramps down
-      blue  = 0x1F;
-      break;
-    case 4:
-      red   = amplit; // Red ramps up
-      green = 0;
-      blue  = 0x1F;
-      break;
-    case 5:
-      red   = 0x1F;
-      green = 0;
-      blue  = 0x1F - amplit; // Blue ramps down
-      break;
+  if (initMeter) {
+    initMeter = false;
+    last_angle = 30;
+    tft.fillCircle(x, y, r, DARKER_GREY);
+    tft.drawSmoothCircle(x, y, r, TFT_SILVER, DARKER_GREY);
+    uint16_t tmp = r - 3;
+    tft.drawArc(x, y, tmp, tmp - tmp / 5, last_angle, 330, TFT_BLACK, DARKER_GREY);
   }
 
-  return red << 11 | green << 6 | blue;
+  r -= 3;
+
+  // Range here is 0-100 so value is scaled to an angle 30-330
+  int val_angle = map(val, 0, 100, 30, 330);
+
+
+  if (last_angle != val_angle) {
+    // Could load the required font here
+    //if (ofr.loadFont(TTF_FONT, sizeof(TTF_FONT))) {
+    //  Serial.println("Render initialize error");
+    //  return;
+    //}
+#ifdef DRAW_DIGITS
+    ofr.setDrawer(spr); // Link renderer to sprite (font will be rendered in sprite spr)
+
+    // Add value in centre if radius is a reasonable size
+    if ( r >= 25 ) {
+      // This code gets the font dimensions in pixels to determine the required the sprite size
+      ofr.setFontSize((6 * r) / 4);
+      ofr.setFontColor(TFT_WHITE, DARKER_GREY);
+
+
+      // The OpenFontRender library only has simple print functions...
+      // Digit jiggle for changing values often happens with proportional fonts because
+      // digit glyph width varies ( 1 narrower that 4 for example). This code prints up to
+      // 3 digits with even spacing.
+      // A few experimental fudge factors are used here to position the
+      // digits in the sprite...
+      // Create a sprite to draw the digits into
+      uint8_t w = ofr.getTextWidth("444");
+      uint8_t h = ofr.getTextHeight("4") + 4;
+      spr.createSprite(w, h + 2);
+      spr.fillSprite(DARKER_GREY); // (TFT_BLUE); // (DARKER_GREY);
+      char str_buf[8];         // Buffed for string
+      itoa (val, str_buf, 10); // Convert value to string (null terminated)
+      uint8_t ptr = 0;         // Pointer to a digit character
+      uint8_t dx = 4;          // x offset for cursor position
+      if (val < 100) dx = ofr.getTextWidth("4") / 2; // Adjust cursor x for 2 digits
+      if (val < 10) dx = ofr.getTextWidth("4");      // Adjust cursor x for 1 digit
+      while ((uint8_t)str_buf[ptr] != 0) ptr++;      // Count the characters
+      while (ptr) {
+        ofr.setCursor(w - dx - w / 20, -h / 2.5);    // Offset cursor position in sprite
+        ofr.rprintf(str_buf + ptr - 1);              // Draw a character
+        str_buf[ptr - 1] = 0;                        // Replace character with a null
+        dx += 1 + w / 3;                             // Adjust cursor for next character
+        ptr--;                                       // Decrement character pointer
+      }
+      spr.pushSprite(x - w / 2, y - h / 2); // Push sprite containing the val number
+      spr.deleteSprite();                   // Recover used memory
+
+      // Make the TFT the print destination, print the units label direct to the TFT
+      ofr.setDrawer(tft);
+      ofr.setFontColor(TFT_GOLD, DARKER_GREY);
+      ofr.setFontSize(r / 2.0);
+      ofr.setCursor(x, y + (r * 0.4));
+      ofr.cprintf("Luci");
+    }
+#endif
+
+    //ofr.unloadFont(); // Recover space used by font metrics etc.
+
+    // Allocate a value to the arc thickness dependant of radius
+    uint8_t thickness = r / 5;
+    if ( r < 25 ) thickness = r / 3;
+
+    // Update the arc, only the zone between last_angle and new val_angle is updated
+    if (val_angle > last_angle) {
+      tft.drawArc(x, y, r, r - thickness, last_angle, val_angle, TFT_SKYBLUE, TFT_BLACK); // TFT_SKYBLUE random(0x10000)
+    }
+    else {
+      tft.drawArc(x, y, r, r - thickness, val_angle, last_angle, TFT_BLACK, DARKER_GREY);
+    }
+    last_angle = val_angle; // Store meter arc position for next redraw
+  }
 }
