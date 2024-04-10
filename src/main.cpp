@@ -23,35 +23,39 @@ void setup()
 void loop()
 {
   static uint32_t last = 0;
-  static u8 state = 0;
-  if(millis() - last > 2000){
+  static u8 state = 1;
+  if (millis() - last > 2000)
+  {
     last = millis();
-    state ++;
+    state++;
   }
 
   switch (state)
   {
-  case 0:
+  case 1:
     display.draw_png();
     break;
-  case 1:
+  case 2:
+    display.draw_565();
+    break;
+  case 3:
     display.set_init_ring_meter();
     break;
-  case 2:
+  case 4:
     display.test_ring_meter();
     break;
   default:
-    state = 0;
+    state = 1;
     break;
   }
-  
+
   // static unsigned long dt = 0;
 
   // bms.req_status();
   // bms.print_full_status();
-  
+
   // Serial.print(millis() - dt);
   // dt = millis();
 
-  //delay(1000);
+  // delay(1000);
 }

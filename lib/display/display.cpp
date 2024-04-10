@@ -25,9 +25,10 @@
 
 // Include the PNG decoder library
 #include <PNGdec.h>
-#include "panda.h"			// Image is stored here in an 8-bit array
-PNG png;					// PNG decoder instance
-#define MAX_IMAGE_WIDTH 240 // Adjust for your images
+#include "png/panda.h"
+#include "png/kaos565.h"
+PNG png;
+#define MAX_IMAGE_WIDTH 240
 
 TFT_eSPI tft = TFT_eSPI();			 // Invoke custom library with default width and height
 TFT_eSprite spr = TFT_eSprite(&tft); // Declare Sprite object "spr" with pointer to "tft" object
@@ -67,6 +68,11 @@ void CIRCULAR_DISPLAY::clear(uint16_t color)
 	tft.fillScreen(color);
 }
 
+void CIRCULAR_DISPLAY::draw_565()
+{
+	// https://notisrac.github.io/FileToCArray/
+	tft.pushImage(0, 0, 240, 240, KAOS_Logo_240_b);
+}
 
 void png_draw_callback(PNGDRAW *pDraw)
 {
@@ -83,7 +89,12 @@ void CIRCULAR_DISPLAY::draw_png()
 	if (rc == PNG_SUCCESS)
 	{
 		Serial.println("Successfully opened png file");
-		//Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
+		// Serial.print"image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
+		Serial.println(png.getWidth());
+		Serial.println(png.getHeight());
+		Serial.println(png.getBpp());
+		Serial.println(png.getPixelType());
+
 		tft.startWrite();
 		uint32_t dt = millis();
 		rc = png.decode(NULL, 0);
@@ -114,7 +125,6 @@ void CIRCULAR_DISPLAY::test_ring_meter()
 	// tft.setTextColor(TFT_YELLOW, TFT_BLUE);
 	// tft.drawCentreString("Adapted by Bodmer", TFT_W / 2, TFT_H - 12, 1);
 }
-
 
 void CIRCULAR_DISPLAY::set_init_ring_meter()
 {

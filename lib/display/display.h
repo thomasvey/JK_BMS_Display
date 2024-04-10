@@ -19,6 +19,7 @@ public:
   void setup();
   void clear(uint16_t color);
   void draw_png();
+  void draw_565();
   void test_ring_meter();
   void set_init_ring_meter();
   void ring_meter(int8_t val, const char *units);
