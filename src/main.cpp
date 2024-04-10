@@ -22,7 +22,28 @@ void setup()
 
 void loop()
 {
-  display.test();
+  static uint32_t last = 0;
+  static u8 state = 0;
+  if(millis() - last > 2000){
+    last = millis();
+    state ++;
+  }
+
+  switch (state)
+  {
+  case 0:
+    display.draw_png();
+    break;
+  case 1:
+    display.set_init_ring_meter();
+    break;
+  case 2:
+    display.test_ring_meter();
+    break;
+  default:
+    state = 0;
+    break;
+  }
   
   // static unsigned long dt = 0;
 

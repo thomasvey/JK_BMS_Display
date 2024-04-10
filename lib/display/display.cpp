@@ -23,6 +23,12 @@
 #include "OpenFontRender.h"
 #define TTF_FONT NotoSans_Bold
 
+// Include the PNG decoder library
+#include <PNGdec.h>
+#include "panda.h"			// Image is stored here in an 8-bit array
+PNG png;					// PNG decoder instance
+#define MAX_IMAGE_WIDTH 240 // Adjust for your images
+
 TFT_eSPI tft = TFT_eSPI();			 // Invoke custom library with default width and height
 TFT_eSprite spr = TFT_eSprite(&tft); // Declare Sprite object "spr" with pointer to "tft" object
 OpenFontRender ofr;
@@ -61,15 +67,42 @@ void CIRCULAR_DISPLAY::clear(uint16_t color)
 	tft.fillScreen(color);
 }
 
-void CIRCULAR_DISPLAY::test()
+
+void png_draw_callback(PNGDRAW *pDraw)
 {
-	static int8_t value = -99;
+	int32_t x_pos = 0;
+	int32_t y_pos = 0;
+	uint16_t lineBuffer[MAX_IMAGE_WIDTH];
+	png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+	tft.pushImage(x_pos, y_pos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
+}
+
+void CIRCULAR_DISPLAY::draw_png()
+{
+	int16_t rc = png.openFLASH((uint8_t *)panda, sizeof(panda), png_draw_callback);
+	if (rc == PNG_SUCCESS)
+	{
+		Serial.println("Successfully opened png file");
+		//Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
+		tft.startWrite();
+		uint32_t dt = millis();
+		rc = png.decode(NULL, 0);
+		Serial.print(millis() - dt);
+		Serial.println("ms");
+		tft.endWrite();
+		// png.close(); // not needed for memory->memory decode
+	}
+}
+
+void CIRCULAR_DISPLAY::test_ring_meter()
+{
+	static int8_t value = 0;
 	static int8_t ramp = 1;
 
 	value += ramp;
-	ringMeter(value, "Battery");
+	ring_meter(value, "U+15");
 
-	if((value < -99) || (value > 100)) 
+	if ((value < -99) || (value > 100))
 	{
 		ramp = -ramp;
 	}
@@ -82,16 +115,21 @@ void CIRCULAR_DISPLAY::test()
 	// tft.drawCentreString("Adapted by Bodmer", TFT_W / 2, TFT_H - 12, 1);
 }
 
-void CIRCULAR_DISPLAY::ringMeter(int8_t val, const char *lable)
+
+void CIRCULAR_DISPLAY::set_init_ring_meter()
+{
+	init_ring_meter = true;
+}
+
+void CIRCULAR_DISPLAY::ring_meter(int8_t val, const char *lable)
 {
 	static uint16_t last_angle = 30;
-	static bool initMeter = true;
 	uint8_t thickness = radius / 5;
 	uint8_t val_pos_offset = 15;
 
-	if (initMeter)
+	if (init_ring_meter)
 	{
-		initMeter = false;
+		init_ring_meter = false;
 		last_angle = 30;
 		tft.fillCircle(xpos, ypos, radius, back_color);
 		// tft.drawSmoothCircle(xpos, ypos, radius, bar_color, back_color);

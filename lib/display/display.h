@@ -13,10 +13,13 @@ class CIRCULAR_DISPLAY
   uint16_t bar_color = 0;
   uint16_t bar_back_color = 0;
 
-public:
+  bool init_ring_meter = true;
 
+public:
   void setup();
   void clear(uint16_t color);
-  void test();
-  void ringMeter(int8_t val, const char *units);
+  void draw_png();
+  void test_ring_meter();
+  void set_init_ring_meter();
+  void ring_meter(int8_t val, const char *units);
 };
