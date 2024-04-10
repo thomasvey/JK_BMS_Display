@@ -10,18 +10,19 @@ const u32 BUAD_RATE = 115200;
 const u32 JK_BAUD = 115200;
 
 JK_BMS bms;
+CIRCULAR_DISPLAY display;
 
 void setup()
 {
   Serial.begin(BUAD_RATE);
   Serial1.begin(JK_BAUD);
 
-  display_setup();
+  display.setup();
 }
 
 void loop()
 {
-  display_loop();
+  display.test();
   
   // static unsigned long dt = 0;
 
