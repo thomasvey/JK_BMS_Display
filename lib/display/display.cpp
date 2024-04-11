@@ -23,12 +23,7 @@
 #include "OpenFontRender.h"
 #define TTF_FONT NotoSans_Bold
 
-// Include the PNG decoder library
-#include <PNGdec.h>
-#include "png/panda.h"
-#include "png/kaos565.h"
-PNG png;
-#define MAX_IMAGE_WIDTH 240
+#include "pic/kaos565.h"
 
 TFT_eSPI tft = TFT_eSPI();			 // Invoke custom library with default width and height
 TFT_eSprite spr = TFT_eSprite(&tft); // Declare Sprite object "spr" with pointer to "tft" object
@@ -54,10 +49,10 @@ void CIRCULAR_DISPLAY::setup(void)
 	xpos = tft.width() / 2;
 	ypos = tft.height() / 2;
 
+	current_color = 0x9816;
+	batter_color = 0xfdc0;
+	volt_color = TFT_PINK;
 	back_color = TFT_BLACK;
-	font_color = TFT_PINK;
-	lable_color = TFT_WHITE;
-	bar_color = TFT_VIOLET;
 	bar_back_color = TFT_DARKCYAN;
 
 	clear(back_color);
@@ -74,139 +69,109 @@ void CIRCULAR_DISPLAY::draw_565()
 	tft.pushImage(0, 0, 240, 240, KAOS_Logo_240_b);
 }
 
-void png_draw_callback(PNGDRAW *pDraw)
+void CIRCULAR_DISPLAY::set_init_metric()
 {
-	int32_t x_pos = 0;
-	int32_t y_pos = 0;
-	uint16_t lineBuffer[MAX_IMAGE_WIDTH];
-	png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
-	tft.pushImage(x_pos, y_pos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
+	init_metric = true;
 }
 
-void CIRCULAR_DISPLAY::draw_png()
+void CIRCULAR_DISPLAY::test_metric()
 {
-	int16_t rc = png.openFLASH((uint8_t *)panda, sizeof(panda), png_draw_callback);
-	if (rc == PNG_SUCCESS)
-	{
-		Serial.println("Successfully opened png file");
-		// Serial.print"image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
-		Serial.println(png.getWidth());
-		Serial.println(png.getHeight());
-		Serial.println(png.getBpp());
-		Serial.println(png.getPixelType());
+	static float volt = 0;
+	static float curr = 0;
+	static float batt = 0;
+	static float ramp = 1;
 
-		tft.startWrite();
-		uint32_t dt = millis();
-		rc = png.decode(NULL, 0);
-		Serial.print(millis() - dt);
-		Serial.println("ms");
-		tft.endWrite();
-		// png.close(); // not needed for memory->memory decode
-	}
-}
+	batt += ramp;
+	volt = 40 + batt * 0.1;
+	curr = batt * 2;
+	update_metric(curr, abs(batt), volt);
 
-void CIRCULAR_DISPLAY::test_ring_meter()
-{
-	static int8_t value = 0;
-	static int8_t ramp = 1;
-
-	value += ramp;
-	ring_meter(value, "U+15");
-
-	if ((value < -99) || (value > 100))
+	if ((batt < -99) || (batt > 99))
 	{
 		ramp = -ramp;
 	}
-
-	// const u8 TFT_W = 240;
-	// const u8 TFT_H = 240;
-	// tft.setTextColor(TFT_BLACK, TFT_RED);
-	// tft.drawCentreString("* TFT_S6D02A1 *", TFT_W / 2, 4, 1);
-	// tft.setTextColor(TFT_YELLOW, TFT_BLUE);
-	// tft.drawCentreString("Adapted by Bodmer", TFT_W / 2, TFT_H - 12, 1);
 }
 
-void CIRCULAR_DISPLAY::set_init_ring_meter()
+void CIRCULAR_DISPLAY::update_metric(float current, float battery, float volt)
 {
-	init_ring_meter = true;
-}
-
-void CIRCULAR_DISPLAY::ring_meter(int8_t val, const char *lable)
-{
-	static uint16_t last_angle = 30;
+	static uint16_t last_angle = 180;
 	uint8_t thickness = radius / 5;
-	uint8_t val_pos_offset = 15;
+	static float last_volt = 0;
+	static float last_current = 0;
+	static float last_battery = 0;
 
-	if (init_ring_meter)
+	if (init_metric)
 	{
-		init_ring_meter = false;
-		last_angle = 30;
+		init_metric = false;
+		last_angle = 180;
 		tft.fillCircle(xpos, ypos, radius, back_color);
-		// tft.drawSmoothCircle(xpos, ypos, radius, bar_color, back_color);
-		tft.drawArc(xpos, ypos, radius, radius - thickness, last_angle, 330, bar_back_color, bar_color);
+		tft.drawArc(xpos, ypos, radius, radius - thickness, 30, 330, bar_back_color, current_color);
 	}
 
-	// Range here is 0-100 so value is scaled to an angle 30-330
-	int val_angle = map(abs(val), 0, 100, 30, 330);
 
-	if (last_angle != val_angle)
+	if (last_current != current)
 	{
-		ofr.setDrawer(spr); // Link renderer to sprite (font will be rendered in sprite spr)
+		last_current = current;
+		print_val(current, "%+04.0f%c", 'A', 90, current_color, 120, 80);
 
-		// This code gets the font dimensions in pixels to determine the required the sprite size
-		ofr.setFontSize((6 * radius) / 4);
-		ofr.setFontColor(font_color, back_color);
-
-		// The OpenFontRender library only has simple print functions...
-		// Digit jiggle for changing values often happens with proportional fonts because
-		// digit glyph width varies ( 1 narrower that 4 for example). This code prints up to
-		// 3 digits with even spacing.
-		// A few experimental fudge factors are used here to position the
-		// digits in the sprite...
-		// Create a sprite to draw the digits into
-		uint8_t w = ofr.getTextWidth("444");
-		uint8_t h = ofr.getTextHeight("4") + 4;
-		spr.createSprite(w, h + 2);
-		spr.fillSprite(back_color); // (TFT_BLUE); // (DARKER_GREY);
-		char str_buf[8];			// Buffed for string
-		itoa(val, str_buf, 10);		// Convert value to string (null terminated)
-		uint8_t ptr = 0;			// Pointer to a digit character
-		uint8_t dx = 4;				// x offset for cursor position
-		if (val < 100)
-			dx = ofr.getTextWidth("4") / 2; // Adjust cursor x for 2 digits
-		if (val < 10)
-			dx = ofr.getTextWidth("4"); // Adjust cursor x for 1 digit
-		if (val < 0)
-			dx = ofr.getTextWidth("4") / 2; // Adjust cursor x for negativ digit
-		while ((uint8_t)str_buf[ptr] != 0)
-			ptr++; // Count the characters
-		while (ptr)
+		int val_angle = map(current, -200, 200, 30, 330);
+		if (val_angle > 180)
 		{
-			ofr.setCursor(w - dx - w / 20, -h / 2 + 4); // Offset cursor position in sprite
-			ofr.rprintf(str_buf + ptr - 1);				// Draw a character
-			str_buf[ptr - 1] = 0;						// Replace character with a null
-			dx += 1 + w / 3;							// Adjust cursor for next character
-			ptr--;										// Decrement character pointer
-		}
-		spr.pushSprite(xpos - w / 2, ypos - val_pos_offset - h / 2); // Push sprite containing the val number
-		spr.deleteSprite();											 // Recover used memory
-
-		// Print Lable
-		ofr.setDrawer(tft);
-		ofr.setFontColor(lable_color, back_color);
-		ofr.setFontSize(radius / 2.0);
-		ofr.setCursor(xpos, ypos + (radius * 0.25));
-		ofr.cprintf(lable);
-
-		// Update the arc, only the zone between last_angle and new val_angle is updated
-		if (val_angle > last_angle)
-		{
-			tft.drawArc(xpos, ypos, radius, radius - thickness, last_angle, val_angle, bar_color, bar_back_color);
+			if (val_angle > last_angle)
+			{
+				tft.drawArc(xpos, ypos, radius, radius - thickness, last_angle, val_angle, current_color, bar_back_color);
+			}
+			else
+			{
+				tft.drawArc(xpos, ypos, radius, radius - thickness, val_angle, last_angle, bar_back_color, current_color);
+			}
 		}
 		else
 		{
-			tft.drawArc(xpos, ypos, radius, radius - thickness, val_angle, last_angle, bar_back_color, bar_color);
+			if (val_angle < last_angle)
+			{
+				tft.drawArc(xpos, ypos, radius, radius - thickness, val_angle, last_angle, current_color, bar_back_color);
+			}
+			else
+			{
+				tft.drawArc(xpos, ypos, radius, radius - thickness, last_angle, val_angle, bar_back_color, current_color);
+			}
 		}
 		last_angle = val_angle;
 	}
+
+	if (last_battery != battery)
+	{
+		last_battery = battery;
+		uint16_t color = batter_color;
+		if (battery <= 10)
+		{
+			color = TFT_RED;
+		}
+		print_val(battery, "%.0f%c", '%', 70, color, 120, 150);
+	}
+
+	if (last_volt != volt)
+	{
+		last_volt = volt;
+		print_val(volt, "%.2f%c", 'V', 50, volt_color, 120, 220);
+	}
+}
+
+void CIRCULAR_DISPLAY::print_val(float val, const char *format, const char sign, uint8_t font_size, uint16_t color, uint8_t pos_x, uint8_t pos_y)
+{
+	ofr.setDrawer(spr);
+	ofr.setFontSize(font_size);
+	ofr.setFontColor(color, back_color);
+
+	uint8_t w = ofr.getTextWidth("4") * 5.8;
+	uint8_t h = ofr.getTextHeight("4");
+
+	spr.createSprite(w + 4, h + 4);
+	spr.fillSprite(back_color);
+	ofr.setCursor(w / 2, -h / 2);
+	ofr.cprintf(format, val, sign);
+
+	spr.pushSprite(pos_x - w / 2, pos_y - h / 2);
+	spr.deleteSprite();
 }

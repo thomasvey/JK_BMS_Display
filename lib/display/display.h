@@ -7,20 +7,24 @@ class CIRCULAR_DISPLAY
 
   // RGB565 5bit 6bit 5bit
   // https://rgbcolorpicker.com/565
+  uint16_t current_color = 0;
+	uint16_t batter_color = 0;
+	uint16_t volt_color = 0;
   uint16_t back_color = 0;
-  uint16_t font_color = 0;
-  uint16_t lable_color = 0;
-  uint16_t bar_color = 0;
   uint16_t bar_back_color = 0;
 
-  bool init_ring_meter = true;
+  bool init_metric = true;
 
 public:
   void setup();
   void clear(uint16_t color);
-  void draw_png();
+  
   void draw_565();
-  void test_ring_meter();
-  void set_init_ring_meter();
-  void ring_meter(int8_t val, const char *units);
+
+  void set_init_metric();
+  void test_metric();
+  void update_metric(float current, float battery, float volt);
+  void print_val(float val, const char *format, const char sign, uint8_t font_size, uint16_t color, uint8_t pos_x, uint8_t pos_y);
+  
+
 };

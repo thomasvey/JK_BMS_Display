@@ -21,10 +21,10 @@ void setup()
 }
 
 void loop()
-{
+{  
   static uint32_t last = 0;
   static u8 state = 1;
-  if (millis() - last > 2000)
+  if (millis() - last > 5000)
   {
     last = millis();
     state++;
@@ -33,16 +33,16 @@ void loop()
   switch (state)
   {
   case 1:
-    display.draw_png();
-    break;
-  case 2:
     display.draw_565();
     break;
-  case 3:
-    display.set_init_ring_meter();
+  case 2:
+    display.set_init_metric();
+    state++;
     break;
+  case 3:
   case 4:
-    display.test_ring_meter();
+  case 5:
+    display.test_metric();
     break;
   default:
     state = 1;
